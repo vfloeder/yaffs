@@ -43,8 +43,13 @@
 #define YAFFS_ROOT_MODE			0755
 #define YAFFS_LOSTNFOUND_MODE		0700
 
-#define Y_CURRENT_TIME CURRENT_TIME.tv_sec
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 5, 0))
+#define Y_CURRENT_TIME current_kernel_time().tv_sec 
 #define Y_TIME_CONVERT(x) (x).tv_sec
+#else
+#define Y_CURRENT_TIME CURRENT_TIME
+#define Y_TIME_CONVERT(x) (x)
+#endif
 
 #define compile_time_assertion(assertion) \
 	({ int x = __builtin_choose_expr(assertion, 0, (void)0); (void) x; })

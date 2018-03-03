@@ -97,8 +97,14 @@ static uint32_t YCALCBLOCKS(uint64_t partition_size, uint32_t block_size)
 #define yaffs_dentry_to_obj(dptr) yaffs_inode_to_obj((dptr)->d_inode)
 #define yaffs_super_to_dev(sb)	((struct yaffs_dev *)sb->s_fs_info)
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
+#define __CURRENT_TIME(_inode) current_time(_inode)
+#else
+#define __CURRENT_TIME(_inode) current_kernel_time()
+#endif
+
 #define update_dir_time(dir) do {\
-			(dir)->i_ctime = (dir)->i_mtime = CURRENT_TIME; \
+			(dir)->i_ctime = (dir)->i_mtime = __CURRENT_TIME(dir); \
 		} while (0)
 
 
@@ -995,7 +1001,11 @@ static int yaffs_readlink(struct dentry *dentry, char __user * buffer,
 	if (!alias)
 		return -ENOMEM;
 
-	ret = vfs_readlink(dentry, buffer, buflen, alias);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 7, 0)
+	ret = readlink_copy(buffer, buflen, alias);
+#else
+	ret = dentry->d_inode->i_op->readlink(dentry, buffer, buflen);
+#endif
 	kfree(alias);
 	return ret;
 }
@@ -1594,8 +1604,9 @@ static int yaffs_bg_thread_fn(void *data)
 	unsigned long expires;
 	unsigned int urgency;
 	int gc_result;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))	
 	struct timer_list timer;
-
+#endif
 	yaffs_trace(YAFFS_TRACE_BACKGROUND,
 		"yaffs_background starting for dev %p", (void *)dev);
 
@@ -1642,7 +1653,7 @@ static int yaffs_bg_thread_fn(void *data)
 			expires = next_gc;
 		if (time_before(expires, now))
 			expires = now + HZ;
-
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
 		init_timer_on_stack(&timer);
 		timer.expires = expires + 1;
 		timer.data = (unsigned long)current;
@@ -1652,6 +1663,10 @@ static int yaffs_bg_thread_fn(void *data)
 		add_timer(&timer);
 		schedule();
 		del_timer_sync(&timer);
+#else
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(expires + 1);
+#endif		
 	}
 
 	return 0;

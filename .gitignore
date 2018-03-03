@@ -14,3 +14,4 @@ DEADJOE
 # cscope files
 #
 cscope.*
+.cache.mk

@@ -18,7 +18,11 @@
 #include "linux/mtd/mtd.h"
 #include "linux/types.h"
 #include "linux/time.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)) 
+#include "linux/mtd/rawnand.h"
+#else 
 #include "linux/mtd/nand.h"
+#endif
 #include "linux/kernel.h"
 #include "linux/version.h"
 #include "linux/types.h"
@@ -27,6 +31,13 @@
 #include "yaffs_guts.h"
 #include "yaffs_linux.h"
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 4, 0))
+#define mtd_erase(m, ei) (m)->erase(m, ei)
+#define mtd_write_oob(m, addr, pops) (m)->write_oob(m, addr, pops)
+#define mtd_read_oob(m, addr, pops) (m)->read_oob(m, addr, pops)
+#define mtd_block_isbad(m, offs) (m)->block_isbad(m, offs)
+#define mtd_block_markbad(m, offs) (m)->block_markbad(m, offs)
+#endif
 
 int nandmtd_erase_block(struct yaffs_dev *dev, int block_no)
 {
@@ -45,7 +56,7 @@ int nandmtd_erase_block(struct yaffs_dev *dev, int block_no)
 	ei.callback = NULL;
 	ei.priv = (u_long) dev;
 
-	retval = mtd->erase(mtd, &ei);
+	retval = mtd_erase(mtd, &ei);
 
 	if (retval == 0)
 		return YAFFS_OK;
@@ -71,7 +82,7 @@ static 	int yaffs_mtd_write(struct yaffs_dev *dev, int nand_chunk,
 	ops.datbuf = (u8 *)data;
 	ops.oobbuf = (u8 *)oob;
 
-	retval = mtd->write_oob(mtd, addr, &ops);
+	retval = mtd_write_oob(mtd, addr, &ops);
 	if (retval) {
 		yaffs_trace(YAFFS_TRACE_MTD,
 			"write_oob failed, chunk %d, mtd error %d",
@@ -101,7 +112,7 @@ static int yaffs_mtd_read(struct yaffs_dev *dev, int nand_chunk,
 	/* Read page and oob using MTD.
 	 * Check status and determine ECC result.
 	 */
-	retval = mtd->read_oob(mtd, addr, &ops);
+	retval = mtd_read_oob(mtd, addr, &ops);
 	if (retval)
 		yaffs_trace(YAFFS_TRACE_MTD,
 			"read_oob failed, chunk %d, mtd error %d",
@@ -154,7 +165,7 @@ static 	int yaffs_mtd_erase(struct yaffs_dev *dev, int block_no)
 	ei.callback = NULL;
 	ei.priv = (u_long) dev;
 
-	retval = mtd->erase(mtd, &ei);
+	retval = mtd_erase(mtd, &ei);
 
 	if (retval == 0)
 		return YAFFS_OK;
@@ -170,7 +181,7 @@ static int yaffs_mtd_mark_bad(struct yaffs_dev *dev, int block_no)
 
 	yaffs_trace(YAFFS_TRACE_BAD_BLOCKS, "marking block %d bad", block_no);
 
-	retval = mtd->block_markbad(mtd, (loff_t) blocksize * block_no);
+	retval = mtd_block_markbad(mtd, (loff_t) blocksize * block_no);
 	return (retval) ? YAFFS_FAIL : YAFFS_OK;
 }
 
@@ -182,7 +193,7 @@ static int yaffs_mtd_check_bad(struct yaffs_dev *dev, int block_no)
 
 	yaffs_trace(YAFFS_TRACE_BAD_BLOCKS, "checking block %d bad", block_no);
 
-	retval = mtd->block_isbad(mtd, (loff_t) blocksize * block_no);
+	retval = mtd_block_isbad(mtd, (loff_t) blocksize * block_no);
 	return (retval) ? YAFFS_FAIL : YAFFS_OK;
 }
 

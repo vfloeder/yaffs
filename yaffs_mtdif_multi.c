@@ -18,7 +18,11 @@
 #include "linux/mtd/mtd.h"
 #include "linux/types.h"
 #include "linux/time.h"
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)) 
+#include "linux/mtd/rawnand.h"
+#else 
 #include "linux/mtd/nand.h"
+#endif
 #include "linux/kernel.h"
 #include "linux/version.h"
 #include "linux/types.h"

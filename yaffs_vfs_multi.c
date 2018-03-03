@@ -137,7 +137,11 @@
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 26))
 #define Y_INIT_TIMER(a)	init_timer(a)
 #else
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0))
+#define Y_INIT_TIMER(a)	timer_setup(a)
+#else
 #define Y_INIT_TIMER(a)	init_timer_on_stack(a)
+#endif
 #endif
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 27))
@@ -241,8 +245,8 @@ MODULE_PARM(yaffs_gc_control, "i");
 #define YAFFS_USE_DIR_ITERATE
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
-#define YAFFS_USE_SEPARATE_XATTR
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0))
+#define YAFFS_USE_XATTR
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,0))
@@ -263,9 +267,16 @@ MODULE_PARM(yaffs_gc_control, "i");
 #define YAFFS_NEW_GET_LINK 0
 #endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
+#define __CURRENT_TIME(_inode) current_time(_inode)
+#else
+#define __CURRENT_TIME(_inode) current_kernel_time()
+#endif
+
 #define update_dir_time(dir) do {\
-			(dir)->i_ctime = (dir)->i_mtime = CURRENT_TIME; \
+			(dir)->i_ctime = (dir)->i_mtime = __CURRENT_TIME(dir); \
 		} while (0)
+
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0))
 static inline int setattr_prepare(struct dentry *dentry, struct iattr *attr)
@@ -940,9 +951,17 @@ static int yaffs_setattr(struct dentry *dentry, struct iattr *attr)
 	return error;
 }
 
-static int yaffs_internal_setxattr(struct dentry *dentry, struct inode *inode,
-	const char *name, const void *value, size_t size, int flags)
+#ifdef YAFFS_USE_XATTR
+#if (YAFFS_NEW_XATTR > 0)
+static int yaffs_setxattr(struct dentry *dentry, struct inode *inode,
+		const char *name, const void *value, size_t size, int flags)
 {
+#else
+static int yaffs_setxattr(struct dentry *dentry, const char *name,
+		   const void *value, size_t size, int flags)
+{
+	struct inode *inode = dentry->d_inode;
+#endif
 	int error = 0;
 	struct yaffs_dev *dev;
 	struct yaffs_obj *obj = yaffs_inode_to_obj(inode);
@@ -966,32 +985,16 @@ static int yaffs_internal_setxattr(struct dentry *dentry, struct inode *inode,
 	return error;
 }
 
-#if defined(YAFFS_USE_SEPARATE_XATTR)
-static int yaffs_setxattr(const struct xattr_handler *handler,
-	struct dentry *dentry, struct inode *inode, const char *name,
-	const void *value, size_t size, int flags)
-{
-	return yaffs_internal_setxattr(dentry, inode, xattr_full_name(handler, name),
-		value, size, flags);
-}
-#elif (YAFFS_NEW_XATTR > 0)
-static int yaffs_setxattr(struct dentry *dentry, struct inode *inode,
-	const char *name, const void *value, size_t size, int flags)
-{
-	return yaffs_internal_setxattr(dentry, inode, name, value, size, flags);
-}
-#else
-static int yaffs_setxattr(struct dentry *dentry, const char *name,
-		   const void *value, size_t size, int flags)
-{
-	return yaffs_internal_setxattr(dentry, dentry->d_inode, name, value, size, flags);
-}
-#endif
-
-
-static ssize_t yaffs_internal_getxattr(struct dentry * dentry, struct inode *inode,
+#ifdef YAFFS_NEW_XATTR
+static ssize_t yaffs_getxattr(struct dentry * dentry, struct inode *inode,
 	const char *name, void *buff, size_t size)
 {
+#else
+static ssize_t yaffs_getxattr(struct dentry * dentry, const char *name,
+			void *buff, size_t size)
+{
+	struct inode *inode = dentry->d_inode;
+#endif
 	int error = 0;
 	struct yaffs_dev *dev;
 	struct yaffs_obj *obj = yaffs_inode_to_obj(inode);
@@ -1012,28 +1015,6 @@ static ssize_t yaffs_internal_getxattr(struct dentry * dentry, struct inode *ino
 	return error;
 }
 
-#if defined(YAFFS_USE_SEPARATE_XATTR)
-static ssize_t yaffs_getxattr(const struct xattr_handler *handler, struct dentry * dentry, struct inode *inode,
-	const char *short_name, void *buff, size_t size)
-{
-	return yaffs_internal_getxattr(dentry, inode, xattr_full_name(handler, short_name),
-		buff, size);
-}
-#elif (YAFFS_NEW_XATTR > 0)
-static ssize_t yaffs_getxattr(struct dentry * dentry, struct inode *inode,
-	const char *name, void *buff, size_t size)
-{
-	return yaffs_internal_getxattr(dentry, inode, name, buff, size);
-}
-#else
-static ssize_t yaffs_getxattr(struct dentry * dentry, const char *name,
-			void *buff, size_t size)
-{
-	return yaffs_internal_getxattr(dentry, dentry->d_inode, name, buff, size);
-}
-#endif
-
-#ifndef YAFFS_USE_SEPARATE_XATTR
 static int yaffs_removexattr(struct dentry *dentry, const char *name)
 {
 	struct inode *inode = dentry->d_inode;
@@ -1089,7 +1070,7 @@ static ssize_t yaffs_listxattr(struct dentry * dentry, char *buff, size_t size)
 
 static const struct inode_operations yaffs_file_inode_operations = {
 	.setattr = yaffs_setattr,
-#ifndef YAFFS_USE_SEPARATE_XATTR
+#ifdef YAFFS_USE_XATTR
 	.setxattr = yaffs_setxattr,
 	.getxattr = yaffs_getxattr,
 	.removexattr = yaffs_removexattr,
@@ -1097,32 +1078,6 @@ static const struct inode_operations yaffs_file_inode_operations = {
 	.listxattr = yaffs_listxattr,
 };
 
-#ifdef YAFFS_USE_SEPARATE_XATTR
-static struct xattr_handler yaffs_xattr_user_handler = {
-	.prefix	= XATTR_USER_PREFIX,
-	.get	= yaffs_getxattr,
-	.set	= yaffs_setxattr,
-};
-
-static struct xattr_handler yaffs_xattr_trusted_handler = {
-	.prefix	= XATTR_TRUSTED_PREFIX,
-	.get	= yaffs_getxattr,
-	.set	= yaffs_setxattr,
-};
-
-static struct xattr_handler yaffs_xattr_security_handler = {
-	.prefix	= XATTR_SECURITY_PREFIX,
-	.get	= yaffs_getxattr,
-	.set	= yaffs_setxattr,
-};
-
-const struct xattr_handler *yaffs_xattr_handlers[] = {
-	&yaffs_xattr_user_handler,
-	&yaffs_xattr_trusted_handler,
-	&yaffs_xattr_security_handler,
-	NULL,
-};
-#endif
 
 static int yaffs_readlink(struct dentry *dentry, char __user * buffer,
 			  int buflen)
@@ -1144,7 +1099,11 @@ static int yaffs_readlink(struct dentry *dentry, char __user * buffer,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 15, 0)
 	ret = vfs_readlink(dentry, buffer, buflen, alias);
 #else
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 7, 0)
 	ret = readlink_copy(buffer, buflen, alias);
+#else
+	ret = dentry->d_inode->i_op->readlink(dentry, buffer, buflen);
+#endif
 #endif
 	kfree(alias);
 	return ret;
@@ -1244,7 +1203,7 @@ static const struct inode_operations yaffs_symlink_inode_operations = {
 	.put_link = yaffs_put_link,
 #endif
 	.setattr = yaffs_setattr,
-#ifndef YAFFS_USE_SEPARATE_XATTR
+#ifdef YAFFS_USE_XATTR
 	.setxattr = yaffs_setxattr,
 	.getxattr = yaffs_getxattr,
 	.removexattr = yaffs_removexattr,
@@ -1726,7 +1685,7 @@ static const struct inode_operations yaffs_dir_inode_operations = {
 	.rename = yaffs_rename,
 	.setattr = yaffs_setattr,
 	.listxattr = yaffs_listxattr,
-#ifndef YAFFS_USE_SEPARATE_XATTR
+#ifdef YAFFS_USE_XATTR
 	.setxattr = yaffs_setxattr,
 	.getxattr = yaffs_getxattr,
 	.removexattr = yaffs_removexattr,
@@ -2200,8 +2159,9 @@ static int yaffs_bg_thread_fn(void *data)
 	unsigned int urgency;
 
 	int gc_result;
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))	
 	struct timer_list timer;
-
+#endif
 	yaffs_trace(YAFFS_TRACE_BACKGROUND,
 		"yaffs_background starting for dev %p", (void *)dev);
 
@@ -2252,7 +2212,7 @@ static int yaffs_bg_thread_fn(void *data)
 			expires = next_gc;
 		if (time_before(expires, now))
 			expires = now + HZ;
-
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
 		Y_INIT_TIMER(&timer);
 		timer.expires = expires + 1;
 		timer.data = (unsigned long)current;
@@ -2262,6 +2222,10 @@ static int yaffs_bg_thread_fn(void *data)
 		add_timer(&timer);
 		schedule();
 		del_timer_sync(&timer);
+#else
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(expires + 1);
+#endif		
 #else
 		msleep(10);
 #endif
@@ -2916,9 +2880,6 @@ static struct super_block *yaffs_internal_read_super(int yaffs_version,
 
 	sb->s_magic = YAFFS_MAGIC;
 	sb->s_op = &yaffs_super_ops;
-#ifdef YAFFS_USE_SEPARATE_XATTR
-	sb->s_xattr = yaffs_xattr_handlers;
-#endif
 	sb->s_flags |= MS_NOATIME;
 
 	read_only = ((sb->s_flags & MS_RDONLY) != 0);
